@@ -1,0 +1,78 @@
+services:
+    db:
+        image: mariadb:10.6
+        restart: always
+        command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
+        volumes:
+            - db_data:/var/lib/mysql
+        environment:
+            - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+            - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+            - MYSQL_DATABASE=${MYSQL_DATABASE}
+            - MYSQL_USER=${MYSQL_USER}
+        networks:
+            - nextcloud_net
+        healthcheck:
+            test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        deploy:
+            resources:
+                limits:
+                    memory: 512M
+
+    redis:
+        image: redis:alpine
+        restart: always
+        volumes:
+            - redis_data:/data
+        networks:
+            - nextcloud_net
+
+    app:
+        build: .
+        restart: always
+        ports:
+            - 8080:80
+        volumes:
+            - nextcloud_data:/var/www/html
+        environment:
+            - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+            - MYSQL_DATABASE=${MYSQL_DATABASE}
+            - MYSQL_USER=${MYSQL_USER}
+            - MYSQL_HOST=db
+            - REDIS_HOST=redis
+            - REDIS_PORT=6379
+            - OVERWRITEPROTOCOL=https
+            - OVERWRITECLIURL=${NEXTCLOUD_URL}
+            - OVERWRITEHOST=${NEXTCLOUD_HOST}
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_started
+        networks:
+            - nextcloud_net
+        deploy:
+            resources:
+                limits:
+                    memory: 1G
+
+    cloudflared:
+        image: cloudflare/cloudflared:latest
+        restart: always
+        command: tunnel run
+        environment:
+            - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+        networks:
+            - nextcloud_net
+
+volumes:
+    db_data:
+    nextcloud_data:
+    redis_data:
+
+networks:
+    nextcloud_net:
+        driver: bridge
